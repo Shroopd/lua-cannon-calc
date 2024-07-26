@@ -265,26 +265,3 @@ function M.getErrorY()
 end
 
 return M
---[[
-    First, find upper and lower bounds of angle, where TofX gives nil.
-        Binary search for lowest non-nil between 0 and LOW
-        Binary search for highest non-nil between 0 and HIGH
-        These are now lownotnil and highnotnil
-    Second, find the highest overshooting angle above target
-        Pick three points, low, mid, high
-        Until good enough:
-            If mid is higher score than both, lowest score point = mid, mid = (low + high) / 2
-            If one end is highest, shift all up by 1 increment (being gap between them)
-        This is now highangle
-    Third, bisection method between either lownotnil and highangle, or highangle and highnotnil (for low or high angle)
-        Do it for 0
---]]
-
-
---[[
-That was a mess, time for take two:
-    For both, if nan, move towards 0
-    Just do the bisection method to find any solution
-        Repeat above and below to find both solutions
-
---]]
