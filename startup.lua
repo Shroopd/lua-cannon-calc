@@ -602,18 +602,27 @@ local function cannon()
             for k, v in pairs(source.list()) do
                 if string.find(v.name, item) then
                     hopper.pullItems(peripheral.getName(source), k, remainingItems)
+                    os.sleep(wink)
                     remainingItems = remainingItems - v.count
                 end
             end
+            return true
         end
     end
 
     local function loadHoppers()
         for _, v in pairs(table.pack(peripheral.find("minecraft:hopper"))) do
             if type(v) == "table" then
-                loadHopper(v, "(shell)|(shot)")
-                loadHopper(v, "charge", C.charges)
-                loadHopper(v, "fuze")
+                if loadHopper(v, "shell") then
+                    if not loadHopper(v, "fuze") then
+                        error("Shells but no fuze")
+                    end
+                elseif not loadHopper(v, "shot") then
+                    error("No shells or shot")
+                end
+                if not loadHopper(v, "charge", C.charges) then
+                    error("No charges")
+                end
             end
         end
     end
@@ -705,7 +714,7 @@ local function cannon()
     rednet.open(C.ender_modem)
 
     while true do
-        local xyz, validSolve
+        local xyz, validSolve = nil, nil
         --  = nil, nil, nil, nil, nil, nil
         redstone.setOutput(C.fire, false)
         redstone.setOutput(C.assemble, false)
@@ -721,7 +730,7 @@ local function cannon()
             end,
             stateCycle
         )
-        if not xyz and validSolve then
+        if not (xyz and validSolve) then
             xyz, validSolve = register()
         end
         parallel.waitForAny(
@@ -739,9 +748,11 @@ local function cannon()
                 pitch, yaw = math.abs(pitch), math.abs(yaw)
                 pitch, yaw = math.floor(pitch + 0.5), math.floor(yaw + 0.5)
                 if pitchmod ~= 0 then
+                    print(pitch, pitchmod)
                     C.pitch.rotate(pitch, pitchmod)
                 end
                 if yawmod ~= 0 then
+                    print(yaw, yawmod)
                     C.yaw.rotate(yaw, yawmod)
                 end
                 print("AIMING")
@@ -757,7 +768,7 @@ local function cannon()
                 _, message = rednet.receive("CANNON_FIRE" .. xyz)
             end,
             function()
-                rednet.host("CANNON_READY" .. xyz, os.getComputerID())
+                rednet.host("CANNON_READY" .. xyz, tostring(os.getComputerID()))
                 while true do
                     local id = rednet.receive("CANNON_QUERY_TIME" .. xyz)
                     os.sleep(wink)
@@ -766,7 +777,7 @@ local function cannon()
             end
         )
         rednet.unhost("CANNON_READY" .. xyz)
-        local delay = string.unpack("n", message)
+        local delay = message
         print("SYNCING")
         os.sleep((delay - validSolve.time) / 20)
         print("FIRING")
