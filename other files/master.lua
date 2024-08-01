@@ -27,7 +27,7 @@ if #args == 3 or #args == 4 then
         local maxTime = 0
         for k, v in pairs(rednet.lookup("CANNON_READY" .. xyz)) do
             rednet.send(v, "CANNON_QUERY_TIME" .. xyz)
-            local _, time = rednet.receive("CANNON_RESPONSE_TIME" .. xyz)
+            local _, time = rednet.receive("CANNON_RESPONSE_TIME" .. xyz, 1.0)
             maxTime = math.max(maxTime, time)
         end
         rednet.broadcast(maxTime, "CANNON_FIRE" .. xyz)

@@ -4,14 +4,14 @@ local function ballistics()
 
 
     --iter depth limit
-    local ITER_LIMIT = 48
+    local ITER_LIMIT = 64
     --T value that is never reached in realistic use
     local T_LIMIT = 500
 
 
     --gravity per tick
     local GRAV_CONST = -0.05
-    --gravity per tick
+    --drag per tick (speed retained)
     local DRAG_CONST = 0.99
     --upper angle limit (90 * 8), negate for lower limit
     local MAX = 90
@@ -48,6 +48,15 @@ local function ballistics()
     local vx, vy, cx, cy
 
 
+    local function signum(number)
+        if number > 0 then
+            return 1
+        elseif number < 0 then
+            return -1
+        else
+            return 0
+        end
+    end
 
     local function xor(a, b)
         return not (not a == not b)
@@ -331,8 +340,21 @@ local function ballistics()
         end
         -- Brain x and brain z for the poor meat calculator behind the screen
         -- I imagine cos as x, sin as z, (x,z), starting at (1,0) progressing towards (0,1) and around counterclockwise.
-        local bx, by = -diffz, diffx
-        local tempyaw = math.deg(math.atan(by, bx))
+        local sx, sz = signum(diffx), signum(diffz)
+        local tempyaw
+        if sx == 0 then
+            tempyaw = 90 * sz
+        elseif sz == 0 then
+            tempyaw = 90 - (90 * sx)
+        else
+            tempyaw = math.deg(math.atan(diffz / diffx))
+            if (sx < 0) then
+                tempyaw = tempyaw + 180
+            end
+        end
+        tempyaw = 180 + tempyaw
+        tempyaw = ((tempyaw + 180) % 360) - 180
+
         --Yaw in degrees
         outDict.high.yaw = tempyaw
         outDict.low.yaw = tempyaw
@@ -442,9 +464,9 @@ local function config()
         M[k] = tonumber(M[k])
     end
 
-    for _, k in pairs(nums) do
-        M[k] = string.upper(M[k])
-    end
+    -- for _, k in pairs(nums) do
+    --     M[k] = string.upper(M[k])
+    -- end
 
     for _, k in pairs(stores) do
         M[k] = peripheral.wrap(M[k])
@@ -483,7 +505,8 @@ local function cannon()
         --find yawShift
         local rest_axis = string.upper(C.rest_axis)
         if rest_axis == "Y" then
-            startYaw = 270
+            startYaw = 0
+            --TODO
             minAngle, maxAngle = HIGH_MIN, HIGH_MAX
             highMount = true
         else
@@ -517,7 +540,7 @@ local function cannon()
     end
 
     local function check(x, y, z)
-        local dx, dy, dz = C.x - x, C.x - y, C.z - z
+        local dx, dy, dz = C.x - x, C.y - y, C.z - z
         if dx * dx + dy * dy + dz * dz < C.cannonlength * C.cannonlength then
             return false
         end
@@ -525,15 +548,16 @@ local function cannon()
         if not solves then
             return false
         end
-        if solves.high.error < 1 then
+        if solves.high.error < 16 then
             if minAngle <= solves.high.pitch and solves.high.pitch <= maxAngle then
                 return solves.high
             end
-        elseif solves.low.error < 1 then
+        elseif solves.low.error < 16 then
             if minAngle <= solves.low.pitch and solves.low.pitch <= maxAngle then
                 return solves.low
             end
         else
+            print(x, y, z, solves.high.pitch, solves.low.pitch) --TODO
             return false
         end
     end
@@ -544,7 +568,7 @@ local function cannon()
             pitch = HIGH_MAX - pitch
         end
         --multiply by 8, loop to 180 degree yaw moves
-        return pitch * 8, (((yaw - startYaw + 180) % 360) - 180) * 8
+        return pitch * 8, ((((yaw - startYaw + 180) % 360) - 180) * 8)
     end
 
     local function signum(number)
@@ -561,7 +585,7 @@ local function cannon()
         local file = fs.open("state.txt", "w")
         file.write(state)
         file.close()
-        print(state)
+        -- print(state)
     end
 
     local function getState()
@@ -571,7 +595,7 @@ local function cannon()
         local file = fs.open("state.txt", "r")
         local foo = file.readAll()
         file.close()
-        return foo
+        return string.match(foo, "[A-Z]+")
     end
 
     local function noRunningGears()
@@ -613,8 +637,11 @@ local function cannon()
     local function loadHoppers()
         for _, v in pairs(table.pack(peripheral.find("minecraft:hopper"))) do
             if type(v) == "table" then
-                if loadHopper(v, "shell") then
-                    if not loadHopper(v, "fuze") then
+                local try
+                try = loadHopper(v, "shell")
+                if try then
+                    try = loadHopper(v, "fuze")
+                    if not try then
                         error("Shells but no fuze")
                     end
                 elseif not loadHopper(v, "shot") then
@@ -693,6 +720,9 @@ local function cannon()
             end
             os.sleep(wink)
         end
+        while not noRunningGears() do
+
+        end
     end
 
     local function register()
@@ -718,6 +748,7 @@ local function cannon()
         --  = nil, nil, nil, nil, nil, nil
         redstone.setOutput(C.fire, false)
         redstone.setOutput(C.assemble, false)
+        os.sleep(wink)
         --loading
         parallel.waitForAny(
             function()
@@ -728,11 +759,16 @@ local function cannon()
                     rednet.send(sender, true, "CANNON_RESPONSE_UNREADY" .. xyz)
                 end
             end,
-            stateCycle
+            function()
+                print("LOADING")
+                stateCycle()
+            end
         )
         if not (xyz and validSolve) then
+            print("WAITING FOR REGISTER")
             xyz, validSolve = register()
         end
+        os.sleep(wink)
         parallel.waitForAny(
             function()
                 while true do
@@ -748,11 +784,11 @@ local function cannon()
                 pitch, yaw = math.abs(pitch), math.abs(yaw)
                 pitch, yaw = math.floor(pitch + 0.5), math.floor(yaw + 0.5)
                 if pitchmod ~= 0 then
-                    print(pitch, pitchmod)
+                    print(pitch / 8, pitchmod)
                     C.pitch.rotate(pitch, pitchmod)
                 end
                 if yawmod ~= 0 then
-                    print(yaw, yawmod)
+                    print(yaw / 8, yawmod)
                     C.yaw.rotate(yaw, yawmod)
                 end
                 print("AIMING")
@@ -785,11 +821,6 @@ local function cannon()
         setState("UNREADY")
         os.sleep(1.0)
     end
-
-    --[[
-    Load the cannon if unloaded
-    Register if in range: Once registered, respond to filtered queries.
-]]
 end
 
 cannon()
