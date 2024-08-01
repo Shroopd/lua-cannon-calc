@@ -506,7 +506,6 @@ local function cannon()
         local rest_axis = string.upper(C.rest_axis)
         if rest_axis == "Y" then
             startYaw = 0
-            --TODO
             minAngle, maxAngle = HIGH_MIN, HIGH_MAX
             highMount = true
         else
@@ -557,7 +556,7 @@ local function cannon()
                 return solves.low
             end
         else
-            print(x, y, z, solves.high.pitch, solves.low.pitch) --TODO
+            -- print(x, y, z, solves.high.pitch, solves.low.pitch) --not to do
             return false
         end
     end

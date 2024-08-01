@@ -1,5 +1,8 @@
 local args = { ... }
 
+-- a unit of sleep
+local wink = 0.1
+
 local function printUsage()
     local programName = arg[0] or fs.getName(shell.getRunningProgram())
     print("Usages:")
@@ -17,11 +20,17 @@ if #args == 3 or #args == 4 then
 
     repeat
         rednet.broadcast(nil, "CANNON_QUERY_UNREADY" .. xyz)
-    until not rednet.receive("CANNON_RESPONSE_UNREADY" .. xyz, 1.0)
+        print("UNREADY")
+    until not rednet.receive("CANNON_RESPONSE_UNREADY" .. xyz, wink)
+    print("READY")
 
     repeat
         rednet.broadcast(nil, "CANNON_QUERY_AIMING" .. xyz)
-    until not rednet.receive("CANNON_RESPONSE_AIMING" .. xyz, 1.0)
+        print("AIMING")
+    until not rednet.receive("CANNON_RESPONSE_AIMING" .. xyz, wink)
+    print("AIMED")
+	
+	os.sleep(wink)
 
     if mode == "sync" then
         local maxTime = 0
