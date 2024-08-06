@@ -1,4 +1,17 @@
-local function ballistics()
+local function dump(o)
+    if type(o) == 'table' then
+        local s = '{'
+        for k, v in pairs(o) do
+            if type(k) ~= 'number' then k = '"' .. k .. '"' end
+            s = s .. ' ' .. k .. ' = ' .. dump(v) .. ','
+        end
+        return s .. '}'
+    else
+        return tostring(o)
+    end
+end
+
+local function ballistics(config)
     --for require
     local M = {}
 
@@ -26,7 +39,7 @@ local function ballistics()
 
 
     -- Real cannon coords
-    local cannonx, cannony, cannonz
+    -- local cannonx, cannony, cannonz
     -- Target x and y position
     local targetx, targety
     --total number of barrel blocks, including mounted chamber
@@ -93,12 +106,12 @@ local function ballistics()
     end
 
     --optional
-    function M.setDrag(drag_multiplier)
+    local function setDrag(drag_multiplier)
         D = DRAG_CONST * drag_multiplier
     end
 
     --optional
-    function M.setGrav(gravity_multiplier)
+    local function setGrav(gravity_multiplier)
         G = GRAV_CONST * gravity_multiplier
     end
 
@@ -134,7 +147,11 @@ local function ballistics()
             if (highf == nil) then
                 highf = f(high)
             end
-
+            -- os.sleep(1.0)
+            -- print()
+            -- print("low", low, lowf)
+            -- print("mid", mid, midf)
+            -- print("high", high, highf)
             --iterate
             if (lowf > midf) then
                 high, highf = mid, midf
@@ -180,9 +197,14 @@ local function ballistics()
     end
 
     local function TofY(y)
-        local TofPeak = threePointMethod(0, T_LIMIT, YofT)
-        local function foo(n)
-            return YofT(n) - targety
+        local function foo(t)
+            return YofT(t) - targety
+        end
+        local TofPeak
+        if trueangle > 0 then
+            TofPeak = threePointMethod(0, T_LIMIT, foo)
+        else
+            TofPeak = 0
         end
         return bisectionMethod(TofPeak, T_LIMIT, foo)
     end
@@ -220,12 +242,24 @@ local function ballistics()
         return -notnil, notnil
     end
 
-    local function overshoot(lowbound, highbound)
+    local function farshoot(lowbound, highbound)
         local function foo(a)
             setAngle(a)
             return XofY(targety)
         end
         return threePointMethod(lowbound, highbound, foo)
+    end
+
+    local function highshoot(lowbound, highbound)
+        local function foo(a)
+            setAngle(a)
+            return YofX(targetx)
+        end
+        return threePointMethod(lowbound, highbound, foo)
+    end
+
+    local function overshoot(lowbound, highbound)
+        return highshoot(lowbound, highbound)
     end
 
     local function finalAngle(low, high)
@@ -255,6 +289,7 @@ local function ballistics()
 
             --find furthest overshoot
             local farangle = overshoot(lownotnil, highnotnil)
+            setAngle(farangle)
 
             --find final angle
             local tempAngle, errorX, errorY
@@ -267,7 +302,7 @@ local function ballistics()
             errorY = YofX(targetx) - targety
             errorX = XofY(targety) - targetx
             --Error squared
-            tempHigh.error = (errorX * errorX) + (errorY * errorY)
+            tempHigh.error = math.min(math.abs(errorX), math.abs(errorY))
             --Pitch in degrees
             tempHigh.pitch = tempAngle
             tempHigh.time = TofX(targetx)
@@ -298,32 +333,20 @@ local function ballistics()
     ---@param cannon_Z number
     ---@param charges number
     ---@param cannon_length number
-    function M.init(cannon_X, cannon_Y, cannon_Z, charges, cannon_length)
-        --store values
-        cannonx, cannony, cannonz = cannon_X, cannon_Y, cannon_Z
-        setCharges(charges)
-        setLength(cannon_length)
-        -- --find yawShift
-        -- rest_axis = string.upper(rest_axis)
-        -- if rest_axis == "Y" then
-        --     startYaw = 0
-        --     minAngle, maxAngle = HIGH_MAX, HIGH_MAX
-        --     highMount = true
-        -- else
-        --     highMount = false
-        --     minAngle, maxAngle = LOW_MIN, LOW_MAX
-        --     if rest_axis == "-Z" then
-        --         startYaw = 0
-        --     elseif rest_axis == "X" then
-        --         startYaw = 90
-        --     elseif rest_axis == "Z" then
-        --         startYaw = 180
-        --     elseif rest_axis == "-X" then
-        --         startYaw = 270
-        --     else
-        --         error("Not a valid axis")
-        --     end
-        -- end
+    local function init(C)
+        setCharges(C.charges)
+        setLength(C.cannonlength)
+        --set dimension
+        local dimension = string.upper(C.dimension)
+        if dimension == "E" then
+            setDrag(0.00001)
+            setGrav(0.9)
+        elseif dimension == "N" then
+            setDrag(1.1)
+            setGrav(1.1)
+        elseif dimension ~= "O" then
+            error("What kind of dimension is " .. dimension .. "?")
+        end
     end
 
     ---comment
@@ -332,7 +355,7 @@ local function ballistics()
     ---@param target_z any
     ---@return table | nil
     function M.solve(target_x, target_y, target_z)
-        local diffx, diffy, diffz = target_x - cannonx, target_y - cannony, target_z - cannonz
+        local diffx, diffy, diffz = target_x --[[ - cannonx]], target_y --[[ - cannony]], target_z --[[ - cannonz]]
         targetx, targety = math.sqrt((diffx * diffx) + (diffz * diffz)), diffy
         local outDict = calc()
         if not outDict then
@@ -361,13 +384,16 @@ local function ballistics()
         return outDict
     end
 
+    init(config)
+
     return M
 end
+
 local function config()
     local M = {}
 
     local gears = { "pitch", "flip", "yaw", "align", "screw", "gantry" }
-    local nums = { "x", "y", "z", "charges", "cannonlength" }
+    local nums = { "x", "y", "z", "charges", "cannonlength", "aim_reduction" }
     local names = { "rest_axis", "dimension", "assemble", "fire", "ender_modem" }
     local stores = { "storage" }
 
@@ -405,7 +431,7 @@ local function config()
         local file = fs.open("config.txt", "r")
         local line = file.readLine()
         while line do
-            local first, last = string.match(line, "([^;]+);"), string.match(line, ";([^;]+)")
+            local first, last = string.match(line, "([^=]+)="), string.match(line, "=([^=]+)")
             M[first] = last
             line = file.readLine()
         end
@@ -451,7 +477,7 @@ local function config()
         end
         local file = fs.open("config.txt", "w")
         for k, v in pairs(M) do
-            file.writeLine(k .. ";" .. v)
+            file.writeLine(k .. "=" .. v)
         end
         file.close()
     end
@@ -474,6 +500,7 @@ local function config()
 
     return M
 end
+
 local function cannon()
     -- local args = { ... }
 
@@ -482,7 +509,7 @@ local function cannon()
     -- local C = require("config")
     -- local B = require("ballistics")
     local C = config()
-    local B = ballistics()
+    local B = ballistics(C)
 
     -- min and max values for high and low mounts
     local LOW_MIN, LOW_MAX, HIGH_MIN, HIGH_MAX = -30, 60, 30, 90
@@ -501,7 +528,6 @@ local function cannon()
     local wink = 0.05
 
     local function init()
-        B.init(C.x, C.y, C.z, C.charges, C.cannonlength)
         --find yawShift
         local rest_axis = string.upper(C.rest_axis)
         if rest_axis == "Y" then
@@ -523,40 +549,32 @@ local function cannon()
                 error("Not a valid axis")
             end
         end
-        --set dimension
-        local dimension = string.upper(C.dimension)
-        if dimension == "E" then
-            B.setDrag(0.00001)
-            B.setGrav(0.9)
-        elseif dimension == "N" then
-            B.setDrag(1.1)
-            B.setGrav(1.1)
-        elseif dimension ~= "O" then
-            error("What kind of dimension is " .. dimension .. "?")
-        end
         --set item source
         source = C.storage
     end
 
     local function check(x, y, z)
-        local dx, dy, dz = C.x - x, C.y - y, C.z - z
+        local dx, dy, dz = x - C.x, y - C.y, z - C.z
         if dx * dx + dy * dy + dz * dz < C.cannonlength * C.cannonlength then
+            print("out of range")
             return false
         end
-        local solves = B.solve(x, y, z)
+        local solves = B.solve(dx, dy, dz)
         if not solves then
+            print("check failed no solutions")
             return false
         end
-        if solves.high.error < 16 then
+        if solves.high.error < 1 then
             if minAngle <= solves.high.pitch and solves.high.pitch <= maxAngle then
                 return solves.high
             end
-        elseif solves.low.error < 16 then
+        elseif solves.low.error < 1 then
             if minAngle <= solves.low.pitch and solves.low.pitch <= maxAngle then
                 return solves.low
             end
         else
             -- print(x, y, z, solves.high.pitch, solves.low.pitch) --not to do
+            print("check failed no solutions")
             return false
         end
     end
@@ -567,7 +585,7 @@ local function cannon()
             pitch = HIGH_MAX - pitch
         end
         --multiply by 8, loop to 180 degree yaw moves
-        return pitch * 8, ((((yaw - startYaw + 180) % 360) - 180) * 8)
+        return pitch * 8 * C.aim_reduction, (((yaw - startYaw + 180) % 360) - 180) * 8 * C.aim_reduction
     end
 
     local function signum(number)
@@ -581,28 +599,26 @@ local function cannon()
     end
 
     local function setState(state)
-        local file = fs.open("state.txt", "w")
+        local file = fs.open("cannon_state.txt", "w")
         file.write(state)
         file.close()
         -- print(state)
     end
 
     local function getState()
-        if not fs.exists("state.txt") then
+        if not fs.exists("cannon_state.txt") then
             setState("UNREADY")
         end
-        local file = fs.open("state.txt", "r")
+        local file = fs.open("cannon_state.txt", "r")
         local foo = file.readAll()
         file.close()
         return string.match(foo, "[A-Z]+")
     end
 
     local function noRunningGears()
-        for k, v in pairs(table.pack(peripheral.find("Create_SequencedGearshift"))) do
-            if type(v) == "table" then
-                if v.isRunning() then
-                    return false
-                end
+        for k, v in ipairs(table.pack(peripheral.find("Create_SequencedGearshift"))) do
+            if v.isRunning() then
+                return false
             end
         end
         return true
@@ -634,31 +650,27 @@ local function cannon()
     end
 
     local function loadHoppers()
-        for _, v in pairs(table.pack(peripheral.find("minecraft:hopper"))) do
-            if type(v) == "table" then
-                local try
-                try = loadHopper(v, "shell")
-                if try then
-                    try = loadHopper(v, "fuze")
-                    if not try then
-                        error("Shells but no fuze")
-                    end
-                elseif not loadHopper(v, "shot") then
-                    error("No shells or shot")
+        for _, v in ipairs(table.pack(peripheral.find("minecraft:hopper"))) do
+            local try
+            try = loadHopper(v, "shell")
+            if try then
+                try = loadHopper(v, "fuze")
+                if not try then
+                    error("Shells but no fuze")
                 end
-                if not loadHopper(v, "charge", C.charges) then
-                    error("No charges")
-                end
+            elseif not loadHopper(v, "shot") then
+                error("No shells or shot")
+            end
+            if not loadHopper(v, "charge", C.charges) then
+                error("No charges")
             end
         end
     end
 
     local function nothingInHoppers()
-        for _, v in pairs(table.pack(peripheral.find("minecraft:hopper"))) do
-            if type(v) == "table" then
-                if #(v.list()) ~= 0 then
-                    return false
-                end
+        for _, v in ipairs(table.pack(peripheral.find("minecraft:hopper"))) do
+            if #(v.list()) ~= 0 then
+                return false
             end
         end
         return true
@@ -726,6 +738,7 @@ local function cannon()
 
     local function register()
         while true do
+            -- print("waiting for register")
             local _, message = rednet.receive("CANNON_REGISTER")
             local tempx, tempy, tempz = string.unpack("nnn", message)
             local solve = check(tempx, tempy, tempz)
@@ -761,10 +774,10 @@ local function cannon()
             function()
                 print("LOADING")
                 stateCycle()
+                print("READY")
             end
         )
         if not (xyz and validSolve) then
-            print("WAITING FOR REGISTER")
             xyz, validSolve = register()
         end
         os.sleep(wink)
@@ -783,11 +796,11 @@ local function cannon()
                 pitch, yaw = math.abs(pitch), math.abs(yaw)
                 pitch, yaw = math.floor(pitch + 0.5), math.floor(yaw + 0.5)
                 if pitchmod ~= 0 then
-                    print(pitch / 8, pitchmod)
+                    -- print(pitch / 8, pitchmod)
                     C.pitch.rotate(pitch, pitchmod)
                 end
                 if yawmod ~= 0 then
-                    print(yaw / 8, yawmod)
+                    -- print(yaw / 8, yawmod)
                     C.yaw.rotate(yaw, yawmod)
                 end
                 print("AIMING")
@@ -798,12 +811,12 @@ local function cannon()
         )
         print("WAITING")
         local message, _
+        rednet.host("CANNON_READY" .. xyz, tostring(os.getComputerID()))
         parallel.waitForAny(
             function()
                 _, message = rednet.receive("CANNON_FIRE" .. xyz)
             end,
             function()
-                rednet.host("CANNON_READY" .. xyz, tostring(os.getComputerID()))
                 while true do
                     local id = rednet.receive("CANNON_QUERY_TIME" .. xyz)
                     os.sleep(wink)

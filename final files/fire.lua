@@ -18,6 +18,8 @@ if #args == 3 or #args == 4 then
     local xyz = string.pack("nnn", x, y, z)
     rednet.broadcast(xyz, "CANNON_REGISTER")
 
+    os.sleep(wink)
+
     repeat
         rednet.broadcast(nil, "CANNON_QUERY_UNREADY" .. xyz)
     until not rednet.receive("CANNON_RESPONSE_UNREADY" .. xyz, wink)
@@ -33,10 +35,13 @@ if #args == 3 or #args == 4 then
     os.sleep(wink)
 
     if mode == "sync" then
+        print("SYNCING")
         local maxTime = 0
-        for k, v in pairs(rednet.lookup("CANNON_READY" .. xyz)) do
-            rednet.send(v, "CANNON_QUERY_TIME" .. xyz)
-            local _, time = rednet.receive("CANNON_RESPONSE_TIME" .. xyz, 1.0)
+        for _, v in ipairs(table.pack(rednet.lookup("CANNON_READY" .. xyz))) do
+            print("querying " .. v)
+            rednet.send(v, nil, "CANNON_QUERY_TIME" .. xyz)
+            print("queried " .. v)
+            local id, time = rednet.receive("CANNON_RESPONSE_TIME" .. xyz, wink)
             maxTime = math.max(maxTime, time)
         end
         rednet.broadcast(maxTime, "CANNON_FIRE" .. xyz)
