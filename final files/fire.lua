@@ -1,7 +1,7 @@
 local args = { ... }
 
 -- a unit of sleep
-local wink = 1.0
+local wink = 0.2
 
 local function printUsage()
     local programName = arg[0] or fs.getName(shell.getRunningProgram())
@@ -33,7 +33,7 @@ if #args == 3 or #args == 4 then
     print("AIMED")
 
     os.sleep(wink)
-
+    local delay
     if mode == "sync" then
         print("SYNCING")
         local maxTime = 0
@@ -44,10 +44,12 @@ if #args == 3 or #args == 4 then
             local id, time = rednet.receive("CANNON_RESPONSE_TIME" .. xyz, wink)
             maxTime = math.max(maxTime, time)
         end
-        rednet.broadcast(maxTime, "CANNON_FIRE" .. xyz)
+        delay = maxTime
     else
-        rednet.broadcast(0, "CANNON_FIRE" .. xyz)
+        delay = 0
     end
+    print("FIRING")
+        rednet.broadcast(delay, "CANNON_FIRE" .. xyz)
     print("FIRED")
 else
     printUsage()

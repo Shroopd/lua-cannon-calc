@@ -101,7 +101,7 @@ local function ballistics(config)
 
     local function setLength(length)
         --Projectile exits one block past barrel
-        cannonlength = length + 1
+        cannonlength = length + 1.5
         updateC()
     end
 
@@ -579,15 +579,6 @@ local function cannon()
         end
     end
 
-    local function translate(pitch, yaw)
-        --correct for highMount
-        if (highMount) then
-            pitch = HIGH_MAX - pitch
-        end
-        --multiply by 8, loop to 180 degree yaw moves
-        return pitch * 8 * C.aim_reduction, (((yaw - startYaw + 180) % 360) - 180) * 8 * C.aim_reduction
-    end
-
     local function signum(number)
         if number > 0 then
             return 1
@@ -596,6 +587,18 @@ local function cannon()
         else
             return 0
         end
+    end
+
+    local function translate(pitch, yaw)
+        --correct for highMount
+        if (highMount) then
+            pitch = HIGH_MAX - pitch
+        end
+        --multiply by 8 and aim_reduction in order to scale to true pitch and yaw, loop > 180 degree yaw moves
+        pitch, yaw = pitch * 8 * C.aim_reduction, (((yaw - startYaw + 180) % 360) - 180) * 8 * C.aim_reduction
+        local pmod, ymod = signum(pitch), signum(yaw)
+        pitch, yaw = pmod * math.ceil(pitch * pmod + 0.5), ymod * math.ceil(yaw * ymod + 0.5)
+        return pitch, yaw
     end
 
     local function setState(state)
@@ -790,35 +793,41 @@ local function cannon()
                 end
             end,
             function()
-                redstone.setOutput(C.assemble, true)
-                local pitch, yaw = translate(validSolve.pitch, validSolve.yaw)
-                local pitchmod, yawmod = signum(pitch), signum(yaw)
-                pitch, yaw = math.abs(pitch), math.abs(yaw)
-                pitch, yaw = math.floor(pitch + 0.5), math.floor(yaw + 0.5)
-                if pitchmod ~= 0 then
-                    -- print(pitch / 8, pitchmod)
-                    C.pitch.rotate(pitch, pitchmod)
-                end
-                if yawmod ~= 0 then
-                    -- print(yaw / 8, yawmod)
-                    C.yaw.rotate(yaw, yawmod)
-                end
-                print("AIMING")
-                while not noRunningGears() do
-                    os.sleep(wink)
-                end
+                -- See rednet.host comment for details
+                parallel.waitForAll(
+                    function()
+                        -- Moved here because rednet.host is a lazy bum, and takes several entire seconds to run
+                        rednet.host("CANNON_READY" .. xyz, tostring(os.getComputerID()))
+                    end,
+                    function()
+                        redstone.setOutput(C.assemble, true)
+                        local pitch, yaw = translate(validSolve.pitch, validSolve.yaw)
+                        local pitchmod, yawmod = signum(pitch), signum(yaw)
+                        if pitchmod ~= 0 then
+                            -- print(pitch / 8, pitchmod)
+                            C.pitch.rotate(pitch, pitchmod)
+                        end
+                        if yawmod ~= 0 then
+                            -- print(yaw / 8, yawmod)
+                            C.yaw.rotate(yaw, yawmod)
+                        end
+                        print("AIMING")
+                        while not noRunningGears() do
+                            os.sleep(wink)
+                        end
+                    end
+                )
             end
         )
         print("WAITING")
-        local message, _
-        rednet.host("CANNON_READY" .. xyz, tostring(os.getComputerID()))
+        local message, id
         parallel.waitForAny(
             function()
-                _, message = rednet.receive("CANNON_FIRE" .. xyz)
+                id, message = rednet.receive("CANNON_FIRE" .. xyz)
             end,
             function()
                 while true do
-                    local id = rednet.receive("CANNON_QUERY_TIME" .. xyz)
+                    id = rednet.receive("CANNON_QUERY_TIME" .. xyz)
                     os.sleep(wink)
                     rednet.send(id, validSolve.time, "CANNON_RESPONSE_TIME" .. xyz)
                 end
@@ -827,11 +836,11 @@ local function cannon()
         rednet.unhost("CANNON_READY" .. xyz)
         local delay = message
         print("SYNCING")
-        os.sleep((delay - validSolve.time) / 20)
+        os.sleep(math.floor((delay - validSolve.time)) / 20)
         print("FIRING")
         redstone.setOutput(C.fire, true)
         setState("UNREADY")
-        os.sleep(1.0)
+        os.sleep(wink + 0.1)
     end
 end
 
