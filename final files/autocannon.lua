@@ -341,15 +341,22 @@ local function ballistics(config)
         setLength(C.cannonlength)
         --set dimension
         local dimension = string.upper(C.dimension)
+        local grav, drag = 1.0, 1.0
         if dimension == "E" then
-            setDrag(0.00001)
-            setGrav(0.9)
+            drag = 0.00001
+            grav = 0.9
         elseif dimension == "N" then
-            setDrag(1.1)
-            setGrav(1.1)
+            drag = 1.1
+            grav = 1.1
         elseif dimension ~= "O" then
             error("What kind of dimension is " .. dimension .. "?")
         end
+        local is_autocannon = string.upper(C.is_autocannon)
+        if is_autocannon == "Y" then
+            grav = grav / 2
+        end
+        setDrag(drag)
+        setGrav(grav)
     end
 
     ---comment
@@ -395,17 +402,18 @@ end
 local function config()
     local M = {}
 
-    local gears = { "pitch", "flip", "yaw", "align", "screw", "gantry" }
+    local gears = { "pitch", "yaw" }
     local nums = { "x", "y", "z", "charges", "cannonlength", "aim_reduction" }
     local names = {
         rest_axis = "(X,Z,-X,-Z,Y)",
         dimension = "(E/O/N)",
+        is_autocannon = "(Y/N)",
         assemble = "(direction)",
         fire = "(direction)",
         ender_modem =
         "(direction)"
     }
-    local stores = { "storage" }
+    -- local stores = { "storage" }
 
     local function hasVal(a, b)
         for k, v in pairs(a) do
@@ -470,21 +478,6 @@ local function config()
             print("Please input: " .. name, guide)
             M[name] = read()
         end
-        for _, name in ipairs(stores) do
-            print("Waiting for: " .. name)
-            while true do
-                local list = peripheral.getNames()
-                filter(list, "create:toolbox")
-                local foo = oneDiff(M, list)
-                if foo then
-                    M[name] = foo
-                    print("assigned to " .. foo)
-                    break
-                else
-                    os.sleep(0.05)
-                end
-            end
-        end
         local file = fs.open("config.txt", "w")
         for k, v in pairs(M) do
             file.writeLine(k .. "=" .. v)
@@ -504,17 +497,11 @@ local function config()
     --     M[k] = string.upper(M[k])
     -- end
 
-    for _, k in pairs(stores) do
-        M[k] = peripheral.wrap(M[k])
-    end
-
     return M
 end
 
 local function cannon()
     -- local args = { ... }
-
-    local this = {}
 
     -- local C = require("config")
     -- local B = require("ballistics")
@@ -522,13 +509,14 @@ local function cannon()
     local B = ballistics(C)
 
     -- min and max values for high and low mounts
-    local LOW_MIN, LOW_MAX, HIGH_MIN, HIGH_MAX = -30, 60, 30, 90
+    local LOW_MIN, LOW_MAX = -30, 60
+    local HIGH_MIN, HIGH_MAX = 30, 90
+    local AUTO_LOW_MIN, AUTO_LOW_MAX = -45, 90
+    local AUTO_HIGH_MIN, AUTO_HIGH_MAX = 0, 90
     -- is the cannon built vertical?
     local highMount
     -- what is the effective starting yaw of the cannon?
     local startYaw
-    -- Wrapped inventory source of charges and such
-    local source
     -- the coords we have registered for, as well as their solve
     -- local xyz, x, y, z, validSolve, registered
     -- min and max value for current mount
@@ -561,8 +549,9 @@ local function cannon()
                 error("Not a valid axis")
             end
         end
-        --set item source
-        source = C.storage
+        if string.upper(C.is_autocannon) == "TRUE" then
+
+        end
     end
 
     local function check(x, y, z)
@@ -613,23 +602,6 @@ local function cannon()
         return pitch, yaw
     end
 
-    local function setState(state)
-        local file = fs.open("cannon_state.txt", "w")
-        file.write(state)
-        file.close()
-        -- print(state)
-    end
-
-    local function getState()
-        if not fs.exists("cannon_state.txt") then
-            setState("UNREADY")
-        end
-        local file = fs.open("cannon_state.txt", "r")
-        local foo = file.readAll()
-        file.close()
-        return string.match(foo, "[A-Z]+")
-    end
-
     local function noRunningGears()
         for k, v in ipairs(table.pack(peripheral.find("Create_SequencedGearshift"))) do
             if v.isRunning() then
@@ -639,123 +611,14 @@ local function cannon()
         return true
     end
 
-    local function loadHopper(hopper, item, count)
-        if not count then
-            count = 1
-        end
-        local remainingItems = count
-        local tally = 0
-        for _, v in pairs(source.list()) do
-            if string.find(v.name, item) then
-                tally = tally + v.count
-            end
-        end
-        if tally < count then
-            return false
-        else
-            for k, v in pairs(source.list()) do
-                if string.find(v.name, item) then
-                    hopper.pullItems(peripheral.getName(source), k, remainingItems)
-                    os.sleep(wink)
-                    remainingItems = remainingItems - v.count
-                end
-            end
-            return true
-        end
-    end
-
-    local function loadHoppers()
-        for _, v in ipairs(table.pack(peripheral.find("minecraft:hopper"))) do
-            local try
-            try = loadHopper(v, "shell")
-            if try then
-                try = loadHopper(v, "fuze")
-                if not try then
-                    error("Shells but no fuze")
-                end
-            elseif not loadHopper(v, "shot") then
-                error("No shells or shot")
-            end
-            if not loadHopper(v, "charge", C.charges) then
-                error("No charges")
-            end
-        end
-    end
-
-    local function nothingInHoppers()
-        for _, hopper in ipairs(table.pack(peripheral.find("minecraft:hopper"))) do
-            for k, v in pairs(hopper.list()) do
-                return false
-            end
-        end
-        return true
-    end
-
-    function this.UNREADY()
-        C.flip.rotate(180)
-        setState("DISMOUNTED")
-    end
-
-    function this.DISMOUNTED()
-        C.screw.move(1, -1)
-        setState("UNSCREWED")
-    end
-
-    function this.UNSCREWED()
-        loadHoppers()
-        setState("HOPPERED")
-        os.sleep(wink)
-        while not nothingInHoppers() do
-            os.sleep(wink)
-        end
-    end
-
-    function this.HOPPERED()
-        while not nothingInHoppers() do
-            os.sleep(wink)
-        end
-        C.gantry.move(C.charges + 1 + 1, -1)
-        setState("PLACED")
-    end
-
-    function this.PLACED()
-        C.align.rotate(90)
-        setState("ALIGNED")
-    end
-
-    function this.ALIGNED()
-        C.gantry.move(C.charges + 1 + 1)
-        setState("INSERTED")
-    end
-
-    function this.INSERTED()
-        C.screw.move(1)
-        setState("SCREWED")
-    end
-
-    function this.SCREWED()
-        C.flip.rotate(180)
-        setState("READY")
-    end
-
-    local function stateCycle()
-        local state = getState()
-        while state ~= "READY" do
-            if noRunningGears() then
-                this[state]()
-                state = getState()
-            end
-            os.sleep(wink)
-        end
-        while not noRunningGears() do
-
-        end
-    end
-
-    local function register()
+    local function register(auto)
         while true do
             -- print("waiting for register")
-            local _, message = rednet.receive("CANNON_REGISTER")
+            local registerMessage = "CANNON_REGISTER"
+            if auto then
+                registerMessage = registerMessage .. "_AUTO"
+            end
+            local _, message = rednet.receive(registerMessage)
             local tempx, tempy, tempz = string.unpack("nnn", message)
             local solve = check(tempx, tempy, tempz)
             if solve then
@@ -772,30 +635,11 @@ local function cannon()
     rednet.open(C.ender_modem)
 
     while true do
-        local xyz, validSolve = nil, nil
-        --  = nil, nil, nil, nil, nil, nil
         redstone.setOutput(C.fire, false)
-        redstone.setOutput(C.assemble, false)
+        redstone.setOutput(C.assemble, true)
         os.sleep(bigWink)
-        --loading
-        parallel.waitForAny(
-            function()
-                xyz, validSolve = register()
-                while true do
-                    local sender = rednet.receive("CANNON_QUERY_UNREADY" .. xyz)
-                    os.sleep(wink)
-                    rednet.send(sender, true, "CANNON_RESPONSE_UNREADY" .. xyz)
-                end
-            end,
-            function()
-                print("LOADING")
-                stateCycle()
-                print("READY")
-            end
-        )
-        if not (xyz and validSolve) then
-            xyz, validSolve = register()
-        end
+        print("READY")
+        local xyz, validSolve = register(string.upper(C.is_autocannon) == "Y")
         os.sleep(wink)
         parallel.waitForAny(
             function()
@@ -806,55 +650,32 @@ local function cannon()
                 end
             end,
             function()
-                -- See rednet.host comment for details
-                parallel.waitForAll(
-                    function()
-                        -- Moved here because rednet.host is a lazy bum, and takes several entire seconds to run
-                        rednet.host("CANNON_READY" .. xyz, tostring(os.getComputerID()))
-                    end,
-                    function()
-                        redstone.setOutput(C.assemble, true)
-                        local pitch, yaw = translate(validSolve.pitch, validSolve.yaw)
-                        local pitchmod, yawmod = signum(pitch), signum(yaw)
-                        -- print(validSolve.pitch, validSolve.yaw)
-                        -- print(pitch, yaw)
-                        if pitchmod ~= 0 then
-                            -- print(pitch / 8, pitchmod)
-                            C.pitch.rotate(pitch, pitchmod)
-                        end
-                        if yawmod ~= 0 then
-                            -- print(yaw / 8, yawmod)
-                            C.yaw.rotate(yaw, yawmod)
-                        end
-                        print("AIMING")
-                        while not noRunningGears() do
-                            os.sleep(wink)
-                        end
-                    end
-                )
-            end
-        )
-        print("WAITING")
-        local message, id
-        parallel.waitForAny(
-            function()
-                id, message = rednet.receive("CANNON_FIRE" .. xyz)
-            end,
-            function()
-                while true do
-                    id = rednet.receive("CANNON_QUERY_TIME" .. xyz)
+                local pitch, yaw = translate(validSolve.pitch, validSolve.yaw)
+                local pitchmod, yawmod = signum(pitch), signum(yaw)
+                -- print(validSolve.pitch, validSolve.yaw)
+                -- print(pitch, yaw)
+                if pitchmod ~= 0 then
+                    -- print(pitch / 8, pitchmod)
+                    C.pitch.rotate(pitch, pitchmod)
+                end
+                if yawmod ~= 0 then
+                    -- print(yaw / 8, yawmod)
+                    C.yaw.rotate(yaw, yawmod)
+                end
+                print("AIMING")
+                while not noRunningGears() do
                     os.sleep(wink)
-                    rednet.send(id, validSolve.time, "CANNON_RESPONSE_TIME" .. xyz)
                 end
             end
         )
-        rednet.unhost("CANNON_READY" .. xyz)
-        local delay = message
-        print("SYNCING")
-        os.sleep(math.floor((delay - validSolve.time)) / 20)
+        print("WAITING")
+        local _, rate = rednet.receive("CANNON_LOOP" .. xyz)
         print("FIRING")
-        redstone.setOutput(C.fire, true)
-        setState("UNREADY")
+        redstone.setAnalogOutput(C.fire, rate)
+        rednet.receive("CANNON_STOP" .. xyz)
+        print("STOPPING")
+        redstone.setAnalogOutput(C.fire, 0)
+        redstone.setOutput(C.assemble, false)
         os.sleep(bigWink)
     end
 end
