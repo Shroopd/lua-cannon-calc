@@ -10,14 +10,14 @@ local function printUsage()
     print(programName .. " <x> <y> <z> [options] <rate>")
     print(
         [[options:
-    Concatenate all letters for options. Eg: ]] .. programName .. [[ 10 30 -12 -SAQ 15
+    Concatenate all letters for options. Eg: ]] .. programName .. [[ 10 30 -12 SAQ 15
 
     Only for screw breach cannons:
-    -S    sync mode: all cannons will start with delay, to hit in sync
+    S    sync mode: all cannons will start with delay, to hit in sync
 
     Disables screw breach cannons, fires on loop
-    -A    use autocannons --Requires rate
-    -Q    use quickfire breach cannons
+    A    use autocannons --Requires rate
+    Q    use quickfire breach cannons
     <rate>    Value from 1 to 15, determines autocannon fire rate
 ]]
     )
@@ -26,23 +26,26 @@ end
 if #args >= 3 then
     rednet.open("back")
     local x, y, z, options, rate = table.unpack(args)
+    rate = tonumber(rate)
     local sync, auto, quick
-    for i = 1, #options - 1 do
-        local letter = string.upper(string.sub(options, i, i + 1))
-        if letter == "S" then
-            sync = true
-        elseif letter == "A" then
-            auto = true
-        elseif letter == "Q" then
-            quick = true
-        end
-        if rate then
-            if rate < 1 or rate > 15 then
-                error("Rate out of bounds, please choose a value 1-15")
+    if options then
+        for i = 1, #options do
+            local letter = string.upper(string.sub(options, i, i))
+            if letter == "S" then
+                sync = true
+            elseif letter == "A" then
+                auto = true
+            elseif letter == "Q" then
+                quick = true
             end
-        end
-        if sync and (auto or quick) then
-            error("Cannot synchronize repeat fire cannons")
+            if auto then
+                if not rate or (rate < 1 or rate > 15) then
+                    error("Invalid rate, please choose a value 1-15")
+                end
+            end
+            if sync and (auto or quick) then
+                error("Cannot synchronize repeat fire cannons")
+            end
         end
     end
 
@@ -92,14 +95,15 @@ if #args >= 3 then
         delay = 0
     end
     print("FIRING")
-    rednet.broadcast(delay, "CANNON_FIRE" .. xyz)
-    if auto then
+    if auto or quick then
         rednet.broadcast(rate, "CANNON_LOOP" .. xyz)
-        print("Hit enter to end barage")
-        read()
+        io.write("Hit enter to end barrage")
+        read("")
         rednet.broadcast(rate, "CANNON_STOP" .. xyz)
+    else
+        rednet.broadcast(delay, "CANNON_FIRE" .. xyz)
     end
-    print("FIRED")
+    print("COMPLETE")
 else
     printUsage()
 end

@@ -319,7 +319,7 @@ local function ballistics(config)
             errorY = YofX(targetx) - targety
             errorX = XofY(targety) - targetx
             --Error squared
-            tempLow.error = (errorX * errorX) + (errorY * errorY)
+            tempLow.error = math.min(math.abs(errorX), math.abs(errorY))
             --Pitch in degrees
             tempLow.pitch = tempAngle
             tempLow.time = TofX(targetx)
@@ -517,10 +517,10 @@ local function cannon()
     local highMount
     -- what is the effective starting yaw of the cannon?
     local startYaw
-    -- the coords we have registered for, as well as their solve
-    -- local xyz, x, y, z, validSolve, registered
     -- min and max value for current mount
     local minAngle, maxAngle
+
+    local auto = string.upper(C.is_autocannon) == "Y"
 
     -- minimum unit of sleep (sleep a wink)
     local wink = 0.05
@@ -530,31 +530,47 @@ local function cannon()
     local function init()
         --find yawShift
         local rest_axis = string.upper(C.rest_axis)
+        -- local highMount
         if rest_axis == "Y" then
             startYaw = 0
-            minAngle, maxAngle = HIGH_MIN, HIGH_MAX
             highMount = true
         else
             highMount = false
-            minAngle, maxAngle = LOW_MIN, LOW_MAX
             if rest_axis == "-Z" then
-                startYaw = 0
-            elseif rest_axis == "X" then
                 startYaw = 90
-            elseif rest_axis == "Z" then
+            elseif rest_axis == "X" then
                 startYaw = 180
-            elseif rest_axis == "-X" then
+            elseif rest_axis == "Z" then
                 startYaw = 270
+            elseif rest_axis == "-X" then
+                startYaw = 360
             else
                 error("Not a valid axis")
             end
         end
-        if string.upper(C.is_autocannon) == "TRUE" then
-
+        if string.upper(C.is_autocannon) == "Y" then
+            if highMount then
+                minAngle, maxAngle = AUTO_HIGH_MIN, AUTO_HIGH_MAX
+            else
+                minAngle, maxAngle = AUTO_LOW_MIN, AUTO_LOW_MAX
+            end
+        else
+            if highMount then
+                minAngle, maxAngle = HIGH_MIN, HIGH_MAX
+            else
+                minAngle, maxAngle = LOW_MIN, LOW_MAX
+            end
         end
     end
 
     local function check(x, y, z)
+        local maxTime
+        if auto then
+            maxTime = 60
+        else
+            maxTime = 600
+        end
+        print("checking", x, y, z)
         local dx, dy, dz = x - C.x, y - C.y, z - C.z
         if dx * dx + dy * dy + dz * dz < C.cannonlength * C.cannonlength then
             print("out of range")
@@ -565,19 +581,16 @@ local function cannon()
             print("check failed no solutions")
             return false
         end
-        if solves.high.error < 1 then
-            if minAngle <= solves.high.pitch and solves.high.pitch <= maxAngle then
-                return solves.high
-            end
-        elseif solves.low.error < 1 then
-            if minAngle <= solves.low.pitch and solves.low.pitch <= maxAngle then
-                return solves.low
-            end
+        if solves.high.error < 1 and (not (solves.high.time > maxTime and auto)) and minAngle <= solves.high.pitch and solves.high.pitch <= maxAngle then
+            return solves.high
+        elseif solves.low.error < 1 and (not (solves.low.time > maxTime and auto)) and minAngle <= solves.low.pitch and solves.low.pitch <= maxAngle then
+            return solves.low
         else
             -- print(x, y, z, solves.high.pitch, solves.low.pitch) --not to do
             print("check failed no solutions")
             return false
         end
+        error("how it get here")
     end
 
     local function signum(number)
@@ -611,12 +624,14 @@ local function cannon()
         return true
     end
 
-    local function register(auto)
+    local function register()
         while true do
             -- print("waiting for register")
             local registerMessage = "CANNON_REGISTER"
             if auto then
                 registerMessage = registerMessage .. "_AUTO"
+            else
+                registerMessage = registerMessage .. "_QUICK"
             end
             local _, message = rednet.receive(registerMessage)
             local tempx, tempy, tempz = string.unpack("nnn", message)
@@ -639,7 +654,8 @@ local function cannon()
         redstone.setOutput(C.assemble, true)
         os.sleep(bigWink)
         print("READY")
-        local xyz, validSolve = register(string.upper(C.is_autocannon) == "Y")
+        -- print(string.upper(C.is_autocannon) == "Y")
+        local xyz, validSolve = register()
         os.sleep(wink)
         parallel.waitForAny(
             function()
@@ -671,8 +687,26 @@ local function cannon()
         print("WAITING")
         local _, rate = rednet.receive("CANNON_LOOP" .. xyz)
         print("FIRING")
-        redstone.setAnalogOutput(C.fire, rate)
-        rednet.receive("CANNON_STOP" .. xyz)
+        parallel.waitForAny(
+            function()
+                if auto then
+                    redstone.setAnalogOutput(C.fire, rate)
+                    while true do
+                        os.sleep(0.1)
+                    end
+                else
+                    while true do
+                        redstone.setOutput(C.fire, true)
+                        os.sleep(0.1)
+                        redstone.setOutput(C.fire, false)
+                        os.sleep(0.1)
+                    end
+                end
+            end,
+            function()
+                rednet.receive("CANNON_STOP" .. xyz)
+            end
+        )
         print("STOPPING")
         redstone.setAnalogOutput(C.fire, 0)
         redstone.setOutput(C.assemble, false)

@@ -22,7 +22,7 @@ local function ballistics(config)
     --iter depth limit
     local ITER_LIMIT = 64
     --T value that is never reached in realistic use
-    local T_LIMIT = 500
+    local T_LIMIT = 600
 
 
     --gravity per tick
@@ -319,7 +319,7 @@ local function ballistics(config)
             errorY = YofX(targetx) - targety
             errorX = XofY(targety) - targetx
             --Error squared
-            tempLow.error = (errorX * errorX) + (errorY * errorY)
+            tempLow.error = math.min(math.abs(errorX), math.abs(errorY))
             --Pitch in degrees
             tempLow.pitch = tempAngle
             tempLow.time = TofX(targetx)
@@ -544,22 +544,25 @@ local function cannon()
         local rest_axis = string.upper(C.rest_axis)
         if rest_axis == "Y" then
             startYaw = 0
-            minAngle, maxAngle = HIGH_MIN, HIGH_MAX
             highMount = true
         else
             highMount = false
-            minAngle, maxAngle = LOW_MIN, LOW_MAX
             if rest_axis == "-Z" then
-                startYaw = 0
-            elseif rest_axis == "X" then
                 startYaw = 90
-            elseif rest_axis == "Z" then
+            elseif rest_axis == "X" then
                 startYaw = 180
-            elseif rest_axis == "-X" then
+            elseif rest_axis == "Z" then
                 startYaw = 270
+            elseif rest_axis == "-X" then
+                startYaw = 360
             else
                 error("Not a valid axis")
             end
+        end
+        if highMount then
+            minAngle, maxAngle = HIGH_MIN, HIGH_MAX
+        else
+            minAngle, maxAngle = LOW_MIN, LOW_MAX
         end
         --set item source
         source = C.storage
