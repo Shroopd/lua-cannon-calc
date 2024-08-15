@@ -14,6 +14,12 @@ local function dump(o, foo)
     end
 end
 
+
+-- minimum unit of sleep (sleep a wink)
+local wink = 0.05
+-- major unit of time, for cannon assembly and such major delays
+local bigWink = 0.2
+
 local function ballistics(config)
     --for require
     local M = {}
@@ -410,8 +416,7 @@ local function config()
         is_autocannon = "(Y/N)",
         assemble = "(direction)",
         fire = "(direction)",
-        ender_modem =
-        "(direction)"
+        ender_modem = "(direction)"
     }
     -- local stores = { "storage" }
 
@@ -466,7 +471,7 @@ local function config()
                     print("assigned to " .. foo)
                     break
                 else
-                    os.sleep(0.05)
+                    os.sleep(wink)
                 end
             end
         end
@@ -521,11 +526,6 @@ local function cannon()
     local minAngle, maxAngle
 
     local auto = string.upper(C.is_autocannon) == "Y"
-
-    -- minimum unit of sleep (sleep a wink)
-    local wink = 0.05
-    -- major unit of time, for cannon assembly and such major delays
-    local bigWink = 4 * wink
 
     local function init()
         --find yawShift

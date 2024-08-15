@@ -437,8 +437,8 @@ local function config()
         end
     end
 
-    if fs.exists("config.txt") then
-        local file = fs.open("config.txt", "r")
+    if fs.exists("cannon_config.txt") then
+        local file = fs.open("cannon_config.txt", "r")
         local line = file.readLine()
         while line do
             local first, last = string.match(line, "([^=]+)="), string.match(line, "=([^=]+)")
@@ -485,7 +485,7 @@ local function config()
                 end
             end
         end
-        local file = fs.open("config.txt", "w")
+        local file = fs.open("cannon_config.txt", "w")
         for k, v in pairs(M) do
             file.writeLine(k .. "=" .. v)
         end
@@ -514,7 +514,6 @@ end
 local function cannon()
     -- local args = { ... }
 
-    local this = {}
 
     -- local C = require("config")
     -- local B = require("ballistics")
@@ -579,19 +578,20 @@ local function cannon()
             print("check failed no solutions")
             return false
         end
-        if solves.high.error < 1 then
-            if minAngle <= solves.high.pitch and solves.high.pitch <= maxAngle then
-                return solves.high
+
+        local order = { "high", "low" }
+        for _, k in ipairs(order) do
+            local attempt = solves[k]
+            if attempt.error < 1 then
+                if minAngle <= attempt.pitch and attempt.pitch <= maxAngle then
+                    return attempt
+                end
             end
-        elseif solves.low.error < 1 then
-            if minAngle <= solves.low.pitch and solves.low.pitch <= maxAngle then
-                return solves.low
-            end
-        else
-            -- print(x, y, z, solves.high.pitch, solves.low.pitch) --not to do
-            print("check failed no solutions")
-            return false
         end
+
+        -- print(x, y, z, solves.high.pitch, solves.low.pitch) --not to do
+        print("check failed no solutions")
+        return false
     end
 
     local function signum(number)
@@ -693,6 +693,8 @@ local function cannon()
         end
         return true
     end
+
+    local this = {}
 
     function this.UNREADY()
         C.flip.rotate(180)

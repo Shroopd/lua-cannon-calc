@@ -1,2 +1,5 @@
-local foo = "anonsg us"
-print(foo[2])
+local foo = ""
+for i = 0, 9 do
+    foo = foo .. i
+    print(foo, foo)
+end
