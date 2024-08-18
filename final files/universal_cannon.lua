@@ -14,6 +14,31 @@ local function tabledump(o, foo)
     end
 end
 
+local function concat(list1, list2)
+    local list3 = {}
+    for _, v in ipairs(list1) do
+        table.insert(list3, v)
+    end
+    for _, v in ipairs(list2) do
+        table.insert(list3, v)
+    end
+end
+
+local function mult(q, p)
+    return {
+        -- W is real, minus imaginary squared
+        w = q.w * p.w - q.x * p.x - q.y * p.y - q.z * p.z,
+        --imaginary is real * imaginary + imaginary * real + forwards imaginary pair - backwards imaginary pair
+        x = q.w * p.x + q.x * p.w + q.y * p.z - q.z * p.y,
+        y = q.w * p.y + q.y * p.w + q.z * p.x - q.x * p.z,
+        z = q.w * p.z + q.z * p.w + q.x * p.y - q.y * p.x
+    }
+end
+
+local function conj(q)
+    return { w = q.w, x = -q.x, y = -q.y, z = -q.z }
+end
+
 local function signum(number)
     if number > 0 then
         return 1
@@ -27,6 +52,8 @@ end
 local wink = 0.05
 -- major unit of time, for cannon assembly and such major delays
 local bigWink = 0.2
+
+local completion = require "cc.completion"
 
 local function ballistics(config)
     --for require
@@ -337,7 +364,7 @@ local function ballistics(config)
         setCharges(C.charges)
         setLength(C.cannonlength)
         --set dimension
-        local dimension = string.upper(C.dimension)
+        local dimension = C.dimension
         local grav, drag = 1.0, 1.0
         if dimension == "E" then
             drag = 0.00001
@@ -348,8 +375,7 @@ local function ballistics(config)
         elseif dimension ~= "O" then
             error("What kind of dimension is " .. dimension .. "?")
         end
-        local is_autocannon = string.upper(C.is_autocannon)
-        if is_autocannon == "Y" then
+        if C.cannon_type == "A" then
             grav = grav / 2
         end
         setDrag(drag)
@@ -400,26 +426,59 @@ local function config()
     local M = {}
 
     -- local gears = { "pitch", "yaw" }
-    local names = {
+    local hints = {
+        cannon_name = "(cannon's hostname)",
+        network_name = "(protocol salt)",
         cannon_type = "(Quick fire breach: Q / Autocannon: A / Mechanically loaded: M)",
-        rest_axis = "( X / Z / -X / -Z / Y )",
-        dimension = "( E / O / N )",
-        assemble = "(direction)",
-        fire = "(direction)",
+        rest_axis = "(Barrel facing axis)",
+        dimension = "(End: E / Overworld: O / Nether: N)",
+        assemble = "(redstone output)",
+        fire = "(redstone output)",
         ender_modem = "(direction or peripheral id)",
         x = "(x of cannon's rotational center)",
         y = "(y of cannon's rotational center)",
         z = "(z of cannon's rotational center)",
-        charges = "(number of powder charges, or muzzle velocity in meters / second divided by 40)",
-        aim_reduction = "(gear down after sequenced gearshift: (aim_reduction * x degrees) -> x degrees)",
-        cannon_name = "(cannon's hostname)"
+        charges = "(number of powder charges, or muzzle velocity in m/s divided by 40)",
+        cannonlength = "(includes mounted chamber)",
+        aim_reduction = "(gear down after sequenced gearshift)",
+    }
+    local autocomplete = {
+        cannon_type = function(text)
+            return completion.choice(text, { "Q", "A", "M" })
+        end,
+        rest_axis = function(text)
+            return completion.choice(text, { "X", "Z", "-X", "-Z", "Y" })
+        end,
+
+        dimension = function(text)
+            return completion.choice(text, { "E", "O", "N" })
+        end,
+        assemble = completion.side,
+        fire = completion.side,
+        ender_modem = completion.peripheral,
+    }
+    local order = {
+        "cannon_name",
+        "network_name",
+        "cannon_type",
+        "rest_axis",
+        "dimension",
+        "assemble",
+        "fire",
+        "ender_modem",
+        "x",
+        "y",
+        "z",
+        "charges",
+        "cannonlength",
+        "aim_reduction",
     }
     local peripheral_seek_list = {
         pitch = "Create_SequencedGearshift",
         yaw = "Create_SequencedGearshift",
     }
     local nums = { "x", "y", "z", "charges", "cannonlength", "aim_reduction" }
-    local peripheral_names = { "pitch", "yaw", "ender_modem" }
+    local peripheral_names = { "pitch", "yaw" }
     -- local stores = { "storage" }
 
     local function hasVal(a, b)
@@ -456,7 +515,7 @@ local function config()
         local file = fs.open("cannon_config.txt", "r")
         local line = file.readLine()
         while line do
-            local first, last = string.match(line, "([^=]+)="), string.match(line, "=([^=]+)")
+            local first, last = string.match(line, "([^=]*)="), string.match(line, "=([^=]*)")
             M[first] = last
             line = file.readLine()
         end
@@ -479,9 +538,9 @@ local function config()
                 oldlist = list
             end
         end
-        for name, guide in pairs(names) do
-            print("Please input: " .. name, guide)
-            M[name] = read()
+        for _, name in pairs(order) do
+            print("Please input: " .. name .. "\n" .. hints[name])
+            M[name] = read(nil, nil, autocomplete[name])
         end
         local file = fs.open("cannon_config.txt", "w")
         for k, v in pairs(M) do
@@ -507,10 +566,10 @@ local function config()
     else
         M.loader = {
             loaded = function()
-                return true
+                return redstone.getOutput(M.assemble)
             end,
             load = function()
-                return true
+                redstone.setOutput(M.assemble, true)
             end,
             unload = function()
                 return true
@@ -576,18 +635,22 @@ local function cannon()
         end
 
         rednet.open(C.ender_modem)
-        rednet.host("CANNON", C.cannon_name)
+        if string.match(C.cannon_name, "^[%w_]+$") ~= C.cannon_name or string.len(C.cannon_name) > 15 then
+            error(C.cannon_name .. " must be 1 to 15 characters, [a-z A-Z 0-9 _], no dash")
+        end
+        print("Hosting as " .. C.cannon_name .. ((C.network_name ~= "") and (" on network " .. C.network_name) or ""))
+        rednet.host("CANNON" .. C.network_name, C.cannon_name)
     end
 
     local function check(P)
         local dx, dy, dz = P.x - C.x, P.y - C.y, P.z - C.z
         if dx * dx + dy * dy + dz * dz < C.cannonlength * C.cannonlength then
-            print("out of range")
+            -- print("out of range")
             return false
         end
         local solves = B.solve(dx, dy, dz)
         if not solves then
-            print("check failed no solutions")
+            -- print("check failed no solutions")
             return false
         end
 
@@ -605,7 +668,7 @@ local function cannon()
         end
 
         -- print(x, y, z, solves.high.pitch, solves.low.pitch) --not to do
-        print("check failed no solutions")
+        -- print("check failed no solutions")
         return false
     end
 
@@ -640,16 +703,21 @@ local function cannon()
         redstone.setOutput(C.assemble, true)
         local pitch, yaw = translate(registered.pitch, registered.yaw)
         local pitchmod, yawmod = signum(pitch), signum(yaw)
+        -- print(registered.pitch, registered.yaw)
+        -- print(pitch, yaw)
         if pitchmod ~= 0 then
+            -- print(pitch / 8, pitchmod)
             C.pitch.rotate(pitch, pitchmod)
         end
         if yawmod ~= 0 then
+            -- print(yaw / 8, yawmod)
             C.yaw.rotate(yaw, yawmod)
         end
-        print("AIMING")
+        -- print("AIMING")
         while not noRunningGears() do
             os.sleep(wink)
         end
+        os.sleep(bigWink)
     end
 
     local function fire(fire_behavior)
@@ -657,6 +725,7 @@ local function cannon()
             print("SYNCING")
             os.sleep(math.floor((fire_behavior.delay - registered.time)) / 20)
         end
+        C.loader.unload()
         if C.cannon_type == "M" then
             print("FIRING")
             redstone.setOutput(C.fire, true)
@@ -670,7 +739,7 @@ local function cannon()
                     os.sleep(0.1)
                 end
             elseif C.cannon_type == "A" then
-                redstone.setOutput(C.fire, true)
+                redstone.setAnalogOutput(C.fire, fire_behavior.rate)
                 while true do
                     os.sleep(0.1)
                 end
@@ -684,26 +753,29 @@ local function cannon()
         if not registered then
             solve = check(message)
             if solve then
-                rednet.send(id, solve, "CANNON_RESPONSE")
-                message.solve = solve
-                return message
+                rednet.send(id, solve, "CANNON_RESPONSE" .. C.network_name)
+                -- message.solve = solve
+                -- return message
+                return solve
             else
-                rednet.send(id, false, "CANNON_RESPONSE")
+                rednet.send(id, false, "CANNON_RESPONSE" .. C.network_name)
             end
         else
-            rednet.send(id, false, "CANNON_RESPONSE")
+            rednet.send(id, false, "CANNON_RESPONSE" .. C.network_name)
         end
     end
 
-    local function statusOrReact(state, registered, react, reactname)
+    local function statusOrReact(status, registered, react, reactname)
+        print(status)
         while true do
             local solve
-            local id, message = rednet.receive("CANNON")
+            local id, message = rednet.receive("CANNON" .. C.network_name)
 
             if message.type == "STATUS" then
-                rednet.send(id, { status = state, registered = registered, config = C }, "CANNON_RESPONSE")
+                rednet.send(id, { status = status, registered = registered, config = C },
+                    "CANNON_STATUS" .. C.network_name)
             elseif message.type == "TRY" then
-                rednet.send(id, check(message), "CANNON_RESPONSE")
+                rednet.send(id, check(message), "CANNON_TRY" .. C.network_name)
             elseif message.type == "ABORT" then
                 os.reboot()
             elseif reactname and message.type == reactname then
@@ -717,37 +789,6 @@ local function cannon()
             end
         end
     end
-    --[[
-    -- local function statusOrRegister(state, registered)
-    --     while true do
-    --         local solve
-    --         local id, message = rednet.receive("CANNON")
-
-    --         if message.type == "STATUS" then
-    --             rednet.send(id, { status = state, registered = registered, config = C }, "CANNON_RESPONSE")
-    --         elseif message.type == "TRY" then
-    --             rednet.send(id, check(message), "CANNON_RESPONSE")
-    --         elseif message.type == "ABORT" then
-    --             os.reboot()
-    --         elseif message.type == "REGISTER" then
-    --             if not registered then
-    --                 solve = check(message)
-    --                 if solve then
-    --                     rednet.send(id, solve, "CANNON_RESPONSE")
-    --                     message.solve = solve
-    --                     return message
-    --                 else
-    --                     rednet.send(id, false, "CANNON_RESPONSE")
-    --                 end
-    --             else
-    --                 rednet.send(id, false, "CANNON_RESPONSE")
-    --             end
-    --         else
-    --             print("Invalid message type! How could this happen?")
-    --         end
-    --     end
-    -- end
-]]
 
     --MAIN CODE START
 
@@ -783,7 +824,7 @@ local function cannon()
 
         parallel.waitForAny(
             function()
-                _, fire_behavior = rednet.receive("CANNON_FIRE")
+                _, fire_behavior = rednet.receive("CANNON_FIRE" .. C.network_name)
             end,
             function()
                 statusOrReact("AIMED", registered)
@@ -800,7 +841,7 @@ local function cannon()
         )
 
         -- Clean state for next fire
-        C.loader.unload()
+        -- C.loader.unload()
         redstone.setOutput(C.fire, false)
         redstone.setOutput(C.assemble, false)
         os.sleep(bigWink)
