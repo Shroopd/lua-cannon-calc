@@ -360,11 +360,13 @@ parallel.waitForAny(
                 end
             end
             local delay = 0
+            local last = 600
 
             if fire_args.sync then
                 print("syncing ")
                 for _, cannon in ipairs(list_cannon_status) do
                     delay = math.max(delay, cannon.time)
+                    last = math.min(last, cannon.time)
                 end
             end
 
@@ -389,7 +391,7 @@ parallel.waitForAny(
                     end
                 end
             else
-                os.sleep(wink)
+                os.sleep(wink + math.max(0, delay - last))
                 for cannon_id in pairs(live_cannons_set) do
                     rednet.send(cannon_id, { type = "HALT" }, "CANNON" .. network_name)
                 end

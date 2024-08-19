@@ -720,7 +720,7 @@ local function cannon()
         os.sleep(bigWink)
     end
 
-    local function fire(fire_behavior)
+    local function fire(fire_behavior, registered)
         if fire_behavior.delay ~= 0 then
             print("SYNCING")
             os.sleep(math.floor((fire_behavior.delay - registered.time)) / 20)
@@ -833,7 +833,7 @@ local function cannon()
 
         parallel.waitForAny(
             function()
-                fire(fire_behavior)
+                fire(fire_behavior, registered)
             end,
             function()
                 statusOrReact("FIRING", registered, nil, "HALT")
